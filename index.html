@@ -2,10 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>躺平发育 - 网页版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>躺平发育 - 手机版</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Socket.IO 客户端 -->
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
@@ -13,55 +14,44 @@
   <div id="start-screen" class="screen">
     <div class="start-box">
       <h1 class="game-title">🛏️ 躺平发育</h1>
-      <p class="subtitle">躺下赚钱，建塔防鬼，活到最后！</p>
+      <p class="subtitle">手机版 · 躺下赚钱，建塔防鬼</p>
       <div class="input-group">
-        <input type="text" id="player-name" placeholder="输入你的名字" maxlength="12" value="玩家">
+        <input type="text" id="player-name" placeholder="输入你的名字" maxlength="10" value="玩家">
       </div>
       <div class="mode-select">
         <button id="btn-solo" class="btn-primary mode-btn">
           <span class="mode-icon">🎮</span>
-          <span class="mode-text">
-            <strong>单机模式</strong>
-            <small>一个人守家</small>
-          </span>
+          <span class="mode-text"><strong>单机模式</strong><small>一个人守家</small></span>
         </button>
         <button id="btn-online" class="btn-primary mode-btn">
           <span class="mode-icon">👥</span>
-          <span class="mode-text">
-            <strong>联机合作</strong>
-            <small>和朋友一起守</small>
-          </span>
+          <span class="mode-text"><strong>联机合作</strong><small>和朋友一起守</small></span>
         </button>
       </div>
-      <button id="btn-leaderboard" class="btn-secondary">🏆 排行榜</button>
       <div class="controls-hint">
-        <p><strong>操作说明：</strong></p>
-        <p>🎮 WASD / 方向键 — 移动</p>
-        <p>🛏️ E 键 — 靠近床时躺平/起床（多人可同时躺）</p>
-        <p>🔨 B 键 — 打开建造菜单</p>
-        <p>⬆️ U 键 — 升级选中建筑</p>
-        <p>❌ Esc — 关闭菜单</p>
+        <p><strong>📱 操作说明：</strong></p>
+        <p>🕹️ 左下摇杆 — 移动角色</p>
+        <p>🛏️ 右下按钮 — 躺平/建造/升级</p>
+        <p>👆 点击画布 — 放置建筑</p>
       </div>
     </div>
   </div>
 
-  <!-- 联机模式：创建/加入房间 -->
+  <!-- 联机界面 -->
   <div id="online-screen" class="screen hidden">
     <div class="start-box">
       <h2>👥 联机合作</h2>
-      <p class="subtitle">最多 4 人一起防守，经济共享</p>
+      <p class="subtitle">最多 4 人，经济共享</p>
       <div class="online-tabs">
         <button id="tab-create" class="tab-btn active">创建房间</button>
         <button id="tab-join" class="tab-btn">加入房间</button>
       </div>
-      <!-- 创建房间 -->
       <div id="create-panel">
         <div class="input-group">
           <input type="text" id="create-room-id" placeholder="房间号（留空自动生成）" maxlength="8">
         </div>
         <button id="btn-create-room" class="btn-primary">创建房间</button>
       </div>
-      <!-- 加入房间 -->
       <div id="join-panel" class="hidden">
         <div class="input-group">
           <input type="text" id="join-room-id" placeholder="输入房间号" maxlength="8">
@@ -73,17 +63,15 @@
     </div>
   </div>
 
-  <!-- 房间等待界面 -->
+  <!-- 房间等待 -->
   <div id="lobby-screen" class="screen hidden">
     <div class="start-box">
       <h2>🏠 房间等待中</h2>
       <div class="room-info">
         <p>房间号：<span id="lobby-room-id" class="room-id">----</span></p>
-        <p class="room-hint">把房间号发给朋友，让他们加入</p>
+        <p class="room-hint">把房间号发给朋友</p>
       </div>
-      <div id="lobby-players" class="lobby-players">
-        <!-- 玩家列表动态生成 -->
-      </div>
+      <div id="lobby-players" class="lobby-players"></div>
       <div class="lobby-actions">
         <button id="btn-ready" class="btn-primary">准备</button>
         <button id="btn-start-game" class="btn-primary hidden">开始游戏</button>
@@ -93,16 +81,7 @@
     </div>
   </div>
 
-  <!-- 排行榜界面 -->
-  <div id="leaderboard-screen" class="screen hidden">
-    <div class="start-box">
-      <h2>🏆 排行榜</h2>
-      <div id="leaderboard-list" class="leaderboard-list">加载中...</div>
-      <button id="btn-back" class="btn-secondary">返回</button>
-    </div>
-  </div>
-
-  <!-- 游戏结束界面 -->
+  <!-- 游戏结束 -->
   <div id="gameover-screen" class="screen hidden">
     <div class="start-box">
       <h1 id="gameover-title">游戏结束</h1>
@@ -120,23 +99,29 @@
   <div id="game-container" class="hidden">
     <!-- 顶部状态栏 -->
     <div id="hud">
-      <div class="hud-item">💰 <span id="hud-coins">0</span></div>
-      <div class="hud-item">🌊 第 <span id="hud-wave">1</span> 波</div>
-      <div class="hud-item">🚪 门: <span id="hud-door-hp">100</span>/<span id="hud-door-max">100</span></div>
-      <div class="hud-item">💀 <span id="hud-ghost-count">0</span></div>
-      <div class="hud-item" id="hud-status">😴 未躺平</div>
-      <div class="hud-item" id="hud-mode">🎮 单机</div>
+      <div class="hud-item">💰<span id="hud-coins">0</span></div>
+      <div class="hud-item">🌊<span id="hud-wave">1</span></div>
+      <div class="hud-item">🚪<span id="hud-door-hp">100</span></div>
+      <div class="hud-item">💀<span id="hud-ghost-count">0</span></div>
+      <div class="hud-item" id="hud-status">😴</div>
     </div>
 
     <!-- 游戏画布 -->
-    <canvas id="game-canvas" width="800" height="600"></canvas>
+    <div id="canvas-wrap">
+      <canvas id="game-canvas" width="800" height="600"></canvas>
+    </div>
 
-    <!-- 底部操作栏 -->
-    <div id="action-bar">
-      <button id="btn-lie" class="action-btn" title="E">🛏️ 躺平</button>
-      <button id="btn-build" class="action-btn" title="B">🔨 建造</button>
-      <button id="btn-upgrade" class="action-btn" title="U">⬆️ 升级</button>
-      <button id="btn-pause" class="action-btn">⏸️ 暂停</button>
+    <!-- 虚拟摇杆 -->
+    <div id="joystick" class="joystick">
+      <div id="joystick-knob" class="joystick-knob"></div>
+    </div>
+
+    <!-- 右侧功能按钮 -->
+    <div id="action-buttons">
+      <button id="btn-lie" class="action-circle">🛏️</button>
+      <button id="btn-build" class="action-circle">🔨</button>
+      <button id="btn-upgrade" class="action-circle">⬆️</button>
+      <button id="btn-pause" class="action-circle">⏸️</button>
     </div>
 
     <!-- 建造菜单 -->
@@ -146,29 +131,25 @@
         <div class="build-item" data-type="turret">
           <div class="build-icon">🗼</div>
           <div class="build-name">炮塔</div>
-          <div class="build-cost">💰 50</div>
-          <div class="build-desc">自动攻击猛鬼</div>
+          <div class="build-cost">💰50</div>
         </div>
         <div class="build-item" data-type="turret2">
           <div class="build-icon">🏰</div>
           <div class="build-name">高级炮塔</div>
-          <div class="build-cost">💰 200</div>
-          <div class="build-desc">伤害更高射程更远</div>
+          <div class="build-cost">💰200</div>
         </div>
         <div class="build-item" data-type="mine">
           <div class="build-icon">⛏️</div>
           <div class="build-name">矿机</div>
-          <div class="build-cost">💰 100</div>
-          <div class="build-desc">每秒额外产金币</div>
+          <div class="build-cost">💰100</div>
         </div>
         <div class="build-item" data-type="repair">
           <div class="build-icon">🔧</div>
           <div class="build-name">维修器</div>
-          <div class="build-cost">💰 80</div>
-          <div class="build-desc">缓慢修复门的血量</div>
+          <div class="build-cost">💰80</div>
         </div>
       </div>
-      <p class="hint">点击空地放置，按 Esc 取消</p>
+      <button id="btn-cancel-build" class="btn-secondary">取消</button>
     </div>
 
     <!-- 升级面板 -->
@@ -178,7 +159,7 @@
       <button id="btn-close-upgrade" class="btn-secondary">关闭</button>
     </div>
 
-    <!-- 联机玩家列表（画布上方浮动） -->
+    <!-- 联机玩家栏 -->
     <div id="online-players-bar" class="online-players-bar hidden"></div>
 
     <!-- 消息提示 -->

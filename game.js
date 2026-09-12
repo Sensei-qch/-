@@ -1,12 +1,10 @@
 // ============================================
-// 躺平发育 - 游戏核心逻辑（含联机合作模式）
+// 躺平发育 - 游戏核心逻辑（手机版 · 无数据库）
 // ============================================
 
 // ========== 游戏配置 ==========
 const CONFIG = {
-  TILE: 40,
-  COLS: 20,
-  ROWS: 15,
+  TILE: 40, COLS: 20, ROWS: 15,
   PLAYER_SPEED: 3,
   WAVE_INTERVAL: 12000,
   GHOST_SPAWN_INTERVAL: 2500,
@@ -66,12 +64,121 @@ const game = {
   clientInputs: {}, map: [], buildings: [], bullets: [], ghosts: [], particles: [],
   coins: 0, totalCoinsEarned: 0, wave: 0, ghostKills: 0,
   doorHp: DOOR.baseHp, doorMaxHp: DOOR.baseHp, doorLevel: 1, bedLevel: 1,
-  isLying: false, selectedBuildType: null, selectedBuilding: null,
+  selectedBuildType: null, selectedBuilding: null,
   waveTimer: 0, ghostSpawnTimer: 0, ghostsToSpawn: 0, waveActive: false,
-  lastTime: 0, playerName: '玩家', mouseX: 0, mouseY: 0,
+  lastTime: 0, playerName: '玩家',
   socket: null, roomId: '', isHost: false, mySocketId: '', latestSnapshot: null,
   _snapshotTimer: 0, _inputTimer: 0, _bedTimer: 0, doorX: 0, doorY: 0,
+  canvasScale: 1,
 };
+
+// ========== 虚拟摇杆 ==========
+const joystick = {
+  el: null, knob: null,
+  active: false, touchId: null,
+  baseX: 0, baseY: 0,
+  dx: 0, dy: 0,       // 归一化方向 -1~1
+  maxDist: 40,         // 摇杆最大移动距离
+};
+
+function initJoystick() {
+  joystick.el = document.getElementById('joystick');
+  joystick.knob = document.getElementById('joystick-knob');
+  if (!joystick.el) return;
+
+  const onStart = (e) => {
+    e.preventDefault();
+    const t = e.touches ? e.touches[0] : e;
+    const rect = joystick.el.getBoundingClientRect();
+    joystick.active = true;
+    joystick.touchId = e.touches ? t.identifier : 'mouse';
+    joystick.baseX = rect.left + rect.width / 2;
+    joystick.baseY = rect.top + rect.height / 2;
+    updateJoystick(t.clientX, t.clientY);
+  };
+
+  const onMove = (e) => {
+    if (!joystick.active) return;
+    e.preventDefault();
+    let t = null;
+    if (e.touches) {
+      for (const touch of e.touches) {
+        if (touch.identifier === joystick.touchId) { t = touch; break; }
+      }
+    } else {
+      t = e;
+    }
+    if (t) updateJoystick(t.clientX, t.clientY);
+  };
+
+  const onEnd = (e) => {
+    if (e.changedTouches) {
+      let ended = false;
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === joystick.touchId) ended = true;
+      }
+      if (!ended) return;
+    }
+    joystick.active = false;
+    joystick.touchId = null;
+    joystick.dx = 0; joystick.dy = 0;
+    joystick.knob.style.transform = 'translate(-50%, -50%)';
+  };
+
+  joystick.el.addEventListener('touchstart', onStart, { passive: false });
+  joystick.el.addEventListener('touchmove', onMove, { passive: false });
+  joystick.el.addEventListener('touchend', onEnd);
+  joystick.el.addEventListener('touchcancel', onEnd);
+  // 鼠标兼容（PC调试用）
+  joystick.el.addEventListener('mousedown', onStart);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onEnd);
+}
+
+function updateJoystick(clientX, clientY) {
+  let dx = clientX - joystick.baseX;
+  let dy = clientY - joystick.baseY;
+  const dist = Math.hypot(dx, dy);
+  if (dist > joystick.maxDist) {
+    dx = dx / dist * joystick.maxDist;
+    dy = dy / dist * joystick.maxDist;
+  }
+  joystick.dx = dx / joystick.maxDist;
+  joystick.dy = dy / joystick.maxDist;
+  joystick.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+
+// 把摇杆输入映射到 keys
+function applyJoystickToKeys() {
+  const threshold = 0.3;
+  keys['w'] = joystick.dy < -threshold;
+  keys['s'] = joystick.dy > threshold;
+  keys['a'] = joystick.dx < -threshold;
+  keys['d'] = joystick.dx > threshold;
+}
+
+// ========== 画布自适应 ==========
+function resizeCanvas() {
+  const wrap = document.getElementById('canvas-wrap');
+  if (!wrap || !game.canvas) return;
+  const wrapW = wrap.clientWidth;
+  const wrapH = wrap.clientHeight;
+  // 按宽度缩放，同时不超过高度
+  let scale = wrapW / 800;
+  if (600 * scale > wrapH) scale = wrapH / 600;
+  game.canvasScale = scale;
+  game.canvas.style.width = (800 * scale) + 'px';
+  game.canvas.style.height = (600 * scale) + 'px';
+}
+
+// 把触摸/鼠标坐标转换为画布内部坐标
+function getCanvasPos(clientX, clientY) {
+  const rect = game.canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) / game.canvasScale,
+    y: (clientY - rect.top) / game.canvasScale,
+  };
+}
 
 // ========== 玩家类 ==========
 class Player {
@@ -133,7 +240,6 @@ class RemotePlayer {
   constructor(id, name) { this.id = id; this.name = name; this.x = 100; this.y = 100; this.dir = 'down'; this.moving = false; this.isLying = false; this.color = '#ff9f43'; }
   updateFromSnapshot(d) { this.x = d.x; this.y = d.y; this.dir = d.dir; this.moving = d.moving; this.isLying = d.isLying; }
   update(keys) {
-    // 房主用：根据客户端按键更新远程玩家位置
     if (this.isLying) { this.moving = false; return; }
     let dx = 0, dy = 0;
     if (keys['w'] || keys['arrowup']) { dy = -1; this.dir = 'up'; }
@@ -142,7 +248,6 @@ class RemotePlayer {
     if (keys['d'] || keys['arrowright']) { dx = 1; this.dir = 'right'; }
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
     const p = new Player(this.x, this.y, this.id, this.name);
-    p.dir = this.dir;
     const nx = this.x + dx * CONFIG.PLAYER_SPEED, ny = this.y + dy * CONFIG.PLAYER_SPEED;
     if (!p.checkCollision(nx, this.y)) this.x = nx;
     if (!p.checkCollision(this.x, ny)) this.y = ny;
@@ -448,8 +553,6 @@ const net = {
     game.mode = game.isHost ? 'host' : 'client';
     document.getElementById('lobby-screen').classList.add('hidden');
     document.getElementById('game-container').classList.remove('hidden');
-    document.getElementById('hud-mode').textContent = game.isHost ? '👑 房主' : '🎮 联机';
-    document.getElementById('online-players-bar').classList.remove('hidden');
     initGame();
   },
   sendInput(keys) { if (!game.socket || game.isHost) return; game.socket.emit('client-input', { playerId: game.mySocketId, keys }); },
@@ -513,41 +616,33 @@ function updateHUD() {
   document.getElementById('hud-coins').textContent = Math.floor(game.coins);
   document.getElementById('hud-wave').textContent = game.wave;
   document.getElementById('hud-door-hp').textContent = Math.ceil(game.doorHp);
-  document.getElementById('hud-door-max').textContent = game.doorMaxHp;
   document.getElementById('hud-ghost-count').textContent = game.ghosts.length;
   const lc = getLyingPlayerCount();
-  const income = (BED.baseIncome + BED.incomePerLevel * (game.bedLevel - 1)) * lc;
-  document.getElementById('hud-status').textContent = lc > 0 ? `😴 ${lc}人躺平 +${income}/s` : '🏃 无人躺平';
+  document.getElementById('hud-status').textContent = lc > 0 ? `😴${lc}人` : '🏃';
   const lieBtn = document.getElementById('btn-lie');
-  lieBtn.textContent = game.player && game.player.isLying ? '🏃 起床' : '🛏️ 躺平';
   lieBtn.classList.toggle('active', game.player && game.player.isLying);
   if (game.mode === 'client' || game.mode === 'host') {
     const bar = document.getElementById('online-players-bar');
     bar.classList.remove('hidden');
     const all = [{ name: game.playerName, isLying: game.player?.isLying, isMe: true }, ...game.otherPlayers.map(p => ({ name: p.name, isLying: p.isLying, isMe: false }))];
-    bar.innerHTML = all.map(p => `<div class="op-row"><span class="op-name">${p.isMe ? '⭐ ' : ''}${p.name}</span><span class="op-state">${p.isLying ? '💤' : '🏃'}</span></div>`).join('');
+    bar.innerHTML = all.map(p => `<div class="op-row"><span class="op-name">${p.isMe ? '⭐' : ''}${p.name}</span><span class="op-state">${p.isLying ? '💤' : '🏃'}</span></div>`).join('');
   }
 }
-function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._timer); t._timer = setTimeout(() => t.classList.add('hidden'), 2500); }
+
+function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._timer); t._timer = setTimeout(() => t.classList.add('hidden'), 2000); }
 function showScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); }
 
 function showUpgradePanel() {
   const panel = document.getElementById('upgrade-panel'), content = document.getElementById('upgrade-content');
   let html = '';
   const doorCost = game.doorLevel >= DOOR.maxLevel ? null : DOOR.upgradeCost(game.doorLevel);
-  html += `<div class="upgrade-row"><div class="upgrade-info"><div class="upgrade-name">🚪 门</div><div class="upgrade-level">Lv.${game.doorLevel}/${DOOR.maxLevel} | HP: ${game.doorMaxHp}</div></div>${doorCost === null ? '<button class="upgrade-btn maxed" disabled>已满级</button>' : `<button class="upgrade-btn" onclick="doUpgrade('door')">升级 💰${doorCost}</button>`}</div>`;
+  html += `<div class="upgrade-row"><div class="upgrade-info"><div class="upgrade-name">🚪 门</div><div class="upgrade-level">Lv.${game.doorLevel} HP:${game.doorMaxHp}</div></div>${doorCost === null ? '<button class="upgrade-btn maxed" disabled>满级</button>' : `<button class="upgrade-btn" onclick="doUpgrade('door')">💰${doorCost}</button>`}</div>`;
   const bedCost = game.bedLevel >= BED.maxLevel ? null : BED.upgradeCost(game.bedLevel);
-  const bedIncome = BED.baseIncome + BED.incomePerLevel * (game.bedLevel - 1);
-  html += `<div class="upgrade-row"><div class="upgrade-info"><div class="upgrade-name">🛏️ 床</div><div class="upgrade-level">Lv.${game.bedLevel}/${BED.maxLevel} | 产金: ${bedIncome}/人/s</div></div>${bedCost === null ? '<button class="upgrade-btn maxed" disabled>已满级</button>' : `<button class="upgrade-btn" onclick="doUpgrade('bed')">升级 💰${bedCost}</button>`}</div>`;
+  html += `<div class="upgrade-row"><div class="upgrade-info"><div class="upgrade-name">🛏️ 床</div><div class="upgrade-level">Lv.${game.bedLevel}</div></div>${bedCost === null ? '<button class="upgrade-btn maxed" disabled>满级</button>' : `<button class="upgrade-btn" onclick="doUpgrade('bed')">💰${bedCost}</button>`}</div>`;
   if (game.selectedBuilding) {
     const b = game.selectedBuilding, bCost = b.getUpgradeCost();
-    let stat = '';
-    if (b.damage) stat += `伤害:${b.damage} `;
-    if (b.range) stat += `射程:${b.range} `;
-    if (b.income) stat += `产金:${b.income}/s `;
-    if (b.healRate) stat += `修复:${b.healRate}/s `;
     const idx = game.buildings.indexOf(b);
-    html += `<div class="upgrade-row"><div class="upgrade-info"><div class="upgrade-name">${b.icon} ${b.name}</div><div class="upgrade-level">Lv.${b.level}/${BUILDINGS[b.type].maxLevel} | ${stat}</div></div>${bCost === null ? '<button class="upgrade-btn maxed" disabled>已满级</button>' : `<button class="upgrade-btn" onclick="doUpgrade('building',${idx})">升级 💰${bCost}</button>`}</div>`;
+    html += `<div class="upgrade-row"><div class="upgrade-info"><div class="upgrade-name">${b.icon}${b.name}</div><div class="upgrade-level">Lv.${b.level}</div></div>${bCost === null ? '<button class="upgrade-btn maxed" disabled>满级</button>' : `<button class="upgrade-btn" onclick="doUpgrade('building',${idx})">💰${bCost}</button>`}</div>`;
   }
   content.innerHTML = html; panel.classList.remove('hidden');
 }
@@ -556,7 +651,7 @@ function doUpgrade(type, idx) {
   if (game.mode === 'client') { net.sendAction('upgrade' + type.charAt(0).toUpperCase() + type.slice(1), idx !== undefined ? { index: idx } : {}); return; }
   if (type === 'door') upgradeDoor();
   else if (type === 'bed') upgradeBed();
-  else if (type === 'building') { const b = game.buildings[idx]; if (b && b.upgrade()) showToast(b.name + ' 升级到 Lv.' + b.level + '！'); }
+  else if (type === 'building') { const b = game.buildings[idx]; if (b && b.upgrade()) showToast(b.name + ' 升级！'); }
   showUpgradePanel();
 }
 
@@ -575,14 +670,15 @@ function initGame() {
   game.player = new Player(spawn.x, spawn.y, game.mySocketId || 'local', game.playerName);
   if (game.mode === 'client') game.otherPlayers = [];
   game.running = true; game.paused = false; game.lastTime = performance.now();
+  resizeCanvas();
+  initJoystick();
   requestAnimationFrame(gameLoop);
-  showToast(game.mode === 'solo' ? '💡 走到床边按 E 躺平开始赚钱！' : '💡 联机合作：多人同时躺平产金更快！');
+  showToast(game.mode === 'solo' ? '💡 左下摇杆移动，靠近床点🛏️躺平' : '💡 联机合作：多人同时躺平产金更快');
 }
 
 function gameOver(win) {
   if (!game.running) return;
   game.running = false;
-  submitRecord(win ? 'win' : 'lose');
   document.getElementById('gameover-title').textContent = win ? '🎉 胜利！' : '💀 门被攻破了！';
   document.getElementById('gameover-title').style.color = win ? '#4ecdc4' : '#ff6b6b';
   document.getElementById('result-wave').textContent = game.wave;
@@ -593,15 +689,13 @@ function gameOver(win) {
   document.getElementById('online-players-bar').classList.add('hidden');
   if (game.socket) { game.socket.disconnect(); game.socket = null; }
 }
-async function submitRecord(result) {
-  try { await fetch('/api/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_name: game.playerName, wave_reached: game.wave, coins_earned: Math.floor(game.totalCoinsEarned), result }) }); } catch (e) {}
-}
 
 // ========== 主循环 ==========
 function gameLoop(timestamp) {
   if (!game.running) return;
   const dt = Math.min(timestamp - game.lastTime, 100); game.lastTime = timestamp;
   if (!game.paused) {
+    applyJoystickToKeys();
     if (game.mode === 'solo' || game.mode === 'host') {
       game.player.update(keys);
       if (game.mode === 'host') for (const p of game.otherPlayers) p.update(game.clientInputs[p.id] || {});
@@ -631,79 +725,91 @@ function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
 }
 
-// ========== 输入 ==========
+// ========== 输入（键盘+PC鼠标备用） ==========
 const keys = {};
 document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase(); keys[key] = true;
   if (!game.running) return;
-  if (key === 'e') {
-    if (game.mode === 'client') net.sendAction('lie');
-    else if (game.player.isNearBed()) {
-      game.player.isLying = !game.player.isLying;
-      if (game.player.isLying) { game.player.x = 4 * CONFIG.TILE + 20; game.player.y = 6 * CONFIG.TILE + 20; showToast('😴 开始躺平发育！'); }
-      else showToast('🏃 起床了！');
-    } else showToast('需要靠近床才能躺平！');
-  }
+  if (key === 'e') doLieAction();
   if (key === 'b' && (game.mode === 'solo' || game.mode === 'host')) toggleBuildMenu();
   if (key === 'u') showUpgradePanel();
   if (key === 'escape') closeAllMenus();
   if (key === 'p' || key === ' ') { e.preventDefault(); game.paused = !game.paused; }
 });
 document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
-document.addEventListener('mousemove', (e) => {
-  if (!game.canvas) return;
-  const rect = game.canvas.getBoundingClientRect();
-  game.mouseX = (e.clientX - rect.left) * (game.canvas.width / rect.width);
-  game.mouseY = (e.clientY - rect.top) * (game.canvas.height / rect.height);
-});
-document.addEventListener('click', (e) => {
-  if (!game.running || game.paused) return;
-  if (e.target === game.canvas && (game.mode === 'solo' || game.mode === 'host')) {
-    const col = Math.floor(game.mouseX / CONFIG.TILE), row = Math.floor(game.mouseY / CONFIG.TILE);
-    if (game.selectedBuildType) placeBuilding(col, row, game.selectedBuildType);
-    else {
+
+// ========== 触摸画布（建造/选中） ==========
+function initCanvasTouch() {
+  const canvas = document.getElementById('game-canvas');
+  if (!canvas) return;
+  const onTouch = (e) => {
+    if (!game.running || game.paused) return;
+    if (game.mode === 'client') return; // 客户端不能建造
+    e.preventDefault();
+    const t = e.touches ? e.touches[0] : e;
+    const pos = getCanvasPos(t.clientX, t.clientY);
+    game.mouseX = pos.x; game.mouseY = pos.y;
+    const col = Math.floor(pos.x / CONFIG.TILE), row = Math.floor(pos.y / CONFIG.TILE);
+    if (game.selectedBuildType) {
+      if (placeBuilding(col, row, game.selectedBuildType)) {
+        // 保持建造模式
+      }
+    } else {
       let found = null;
       for (const b of game.buildings) if (b.col === col && b.row === row) { found = b; break; }
       game.selectedBuilding = found;
       if (found) showUpgradePanel(); else document.getElementById('upgrade-panel').classList.add('hidden');
     }
-  }
-});
+  };
+  canvas.addEventListener('touchstart', onTouch, { passive: false });
+  canvas.addEventListener('mousedown', onTouch);
+}
 
-// ========== 菜单 ==========
+// ========== 动作 ==========
+function doLieAction() {
+  if (!game.player) return;
+  if (game.mode === 'client') { net.sendAction('lie'); return; }
+  if (game.player.isNearBed()) {
+    game.player.isLying = !game.player.isLying;
+    if (game.player.isLying) { game.player.x = 4 * CONFIG.TILE + 20; game.player.y = 6 * CONFIG.TILE + 20; showToast('😴 开始躺平发育！'); }
+    else showToast('🏃 起床了！');
+  } else showToast('需要靠近床才能躺平！');
+}
+
 function toggleBuildMenu() {
   const m = document.getElementById('build-menu');
-  m.classList.toggle('hidden'); document.getElementById('upgrade-panel').classList.add('hidden');
-  game.selectedBuildType = null; document.getElementById('btn-build').classList.toggle('active', !m.classList.contains('hidden'));
+  m.classList.toggle('hidden');
+  document.getElementById('upgrade-panel').classList.add('hidden');
+  game.selectedBuildType = null;
 }
 function closeAllMenus() {
   document.getElementById('build-menu').classList.add('hidden');
   document.getElementById('upgrade-panel').classList.add('hidden');
   game.selectedBuildType = null; game.selectedBuilding = null;
-  document.getElementById('btn-build').classList.remove('active');
 }
+
 document.querySelectorAll('.build-item').forEach(item => {
   item.addEventListener('click', () => {
     game.selectedBuildType = item.dataset.type; game.selectedBuilding = null;
     document.getElementById('build-menu').classList.add('hidden');
-    showToast('已选择 ' + BUILDINGS[game.selectedBuildType].name + '，点击空地放置');
+    showToast('点击空地放置 ' + BUILDINGS[game.selectedBuildType].name);
   });
 });
 
-// ========== 界面按钮 ==========
+// ========== 界面按钮绑定 ==========
 document.getElementById('btn-solo').addEventListener('click', () => {
-  const name = document.getElementById('player-name').value.trim() || '玩家';
-  game.playerName = name; game.mode = 'solo'; game.isHost = false;
-  fetch('/api/player', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }).catch(() => {});
+  game.playerName = document.getElementById('player-name').value.trim() || '玩家';
+  game.mode = 'solo'; game.isHost = false;
   document.getElementById('start-screen').classList.add('hidden');
   document.getElementById('game-container').classList.remove('hidden');
-  document.getElementById('hud-mode').textContent = '🎮 单机';
   initGame();
 });
+
 document.getElementById('btn-online').addEventListener('click', () => {
   game.playerName = document.getElementById('player-name').value.trim() || '玩家';
   showScreen('online-screen');
 });
+
 document.getElementById('tab-create').addEventListener('click', () => {
   document.getElementById('tab-create').classList.add('active'); document.getElementById('tab-join').classList.remove('active');
   document.getElementById('create-panel').classList.remove('hidden'); document.getElementById('join-panel').classList.add('hidden');
@@ -712,7 +818,9 @@ document.getElementById('tab-join').addEventListener('click', () => {
   document.getElementById('tab-join').classList.add('active'); document.getElementById('tab-create').classList.remove('active');
   document.getElementById('join-panel').classList.remove('hidden'); document.getElementById('create-panel').classList.add('hidden');
 });
+
 function genRoomId() { return Math.random().toString(36).substring(2, 6).toUpperCase(); }
+
 document.getElementById('btn-create-room').addEventListener('click', () => {
   let roomId = document.getElementById('create-room-id').value.trim().toUpperCase();
   if (!roomId) roomId = genRoomId();
@@ -734,31 +842,21 @@ document.getElementById('btn-ready').addEventListener('click', () => {
 document.getElementById('btn-start-game').addEventListener('click', () => net.startGame());
 document.getElementById('btn-leave-room').addEventListener('click', () => net.leaveRoom());
 
-document.getElementById('btn-leaderboard').addEventListener('click', async () => {
-  showScreen('leaderboard-screen');
-  try {
-    const res = await fetch('/api/leaderboard'); const data = await res.json();
-    document.getElementById('leaderboard-list').innerHTML = data.list.length === 0 ? '<p style="text-align:center;color:#666;">暂无记录</p>' :
-      data.list.map((p, i) => `<div class="leaderboard-row"><span class="leaderboard-rank">${i + 1}</span><span class="leaderboard-name">${p.name}</span><span class="leaderboard-wave">🌊 ${p.highest_wave} 波</span></div>`).join('');
-  } catch (e) { document.getElementById('leaderboard-list').innerHTML = '<p style="text-align:center;color:#666;">排行榜暂不可用</p>'; }
-});
-document.getElementById('btn-back').addEventListener('click', () => showScreen('start-screen'));
-
-document.getElementById('btn-lie').addEventListener('click', () => {
-  if (!game.player) return;
-  if (game.mode === 'client') { net.sendAction('lie'); return; }
-  if (game.player.isNearBed()) {
-    game.player.isLying = !game.player.isLying;
-    if (game.player.isLying) { game.player.x = 4 * CONFIG.TILE + 20; game.player.y = 6 * CONFIG.TILE + 20; }
-  } else showToast('需要靠近床才能躺平！');
-});
+// 游戏内圆形按钮
+document.getElementById('btn-lie').addEventListener('click', doLieAction);
 document.getElementById('btn-build').addEventListener('click', () => {
-  if (game.mode === 'client') { showToast('联机模式下只有房主可以建造哦'); return; }
+  if (game.mode === 'client') { showToast('联机模式下只有房主可以建造'); return; }
   toggleBuildMenu();
 });
 document.getElementById('btn-upgrade').addEventListener('click', showUpgradePanel);
 document.getElementById('btn-pause').addEventListener('click', () => { game.paused = !game.paused; });
-document.getElementById('btn-close-upgrade').addEventListener('click', () => { document.getElementById('upgrade-panel').classList.add('hidden'); game.selectedBuilding = null; });
+document.getElementById('btn-cancel-build').addEventListener('click', () => {
+  game.selectedBuildType = null;
+  document.getElementById('build-menu').classList.add('hidden');
+});
+document.getElementById('btn-close-upgrade').addEventListener('click', () => {
+  document.getElementById('upgrade-panel').classList.add('hidden'); game.selectedBuilding = null;
+});
 
 document.getElementById('btn-restart').addEventListener('click', () => {
   document.getElementById('gameover-screen').classList.add('hidden');
@@ -769,5 +867,12 @@ document.getElementById('btn-home').addEventListener('click', () => {
   document.getElementById('gameover-screen').classList.add('hidden'); showScreen('start-screen');
 });
 
+// 窗口大小变化时重新计算画布
+window.addEventListener('resize', () => { if (game.running) resizeCanvas(); });
+window.addEventListener('orientationchange', () => { setTimeout(resizeCanvas, 300); });
+
+// 初始化画布触摸
+initCanvasTouch();
+
 window.doUpgrade = doUpgrade;
-console.log('🎮 躺平发育（含联机合作）已加载');
+console.log('🎮 躺平发育（手机版）已加载');

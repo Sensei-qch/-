@@ -1,7 +1,7 @@
 {
   "name": "tangping-develop",
-  "version": "1.0.0",
-  "description": "网页版躺平发育 - 塔防养成游戏",
+  "version": "2.0.0",
+  "description": "手机版躺平发育 - 塔防养成游戏（支持联机）",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,8 +10,6 @@
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.4",
-    "@libsql/client": "^0.6.0",
-    "dotenv": "^16.4.1",
     "cors": "^2.8.5"
   },
   "engines": {
