@@ -44,10 +44,10 @@ async function initDB() {
         played_at TEXT DEFAULT (datetime('now'))
       )
     `);
-    console.log('✅ Turso 数据库连接成功');
+    console.log('连接成功');
   } catch (e) {
-    console.error('❌ Turso 数据库连接失败:', e.message);
-    console.log('   游戏仍可正常运行，只是存档/排行榜不可用');
+    console.error('连接失败:', e.message);
+    console.log('   游戏仍可正常运行，存档/排行榜不可用');
   }
 }
 
@@ -55,7 +55,8 @@ async function initDB() {
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
+
 
 // ---------- API 路由 ----------
 
